@@ -1,0 +1,12 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: project-config
+  namespace: project
+data:
+  ASPNETCORE_ENVIRONMENT: "Staging"
+  DOTNET_ENVIRONMENT: "Staging"
+  MongoDB__DatabaseName: "project_staging"
+  Jwt__Issuer: "Project"
+  Jwt__Audience: "Project"
+  Jwt__ExpirationMinutes: "120"

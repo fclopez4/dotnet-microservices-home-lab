@@ -1,0 +1,84 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: api
+  namespace: project
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: api
+  template:
+    metadata:
+      labels:
+        app: api
+    spec:
+      containers:
+      - name: api
+        image: server:8085/project/api:latest
+        ports:
+        - containerPort: 8080
+        envFrom:
+        - configMapRef:
+            name: project-config
+        env:
+        - name: ConnectionStrings__MongoDB
+          valueFrom:
+            secretKeyRef:
+              name: project-secrets
+              key: mongodb-connection
+        - name: ConnectionStrings__RabbitMQ
+          valueFrom:
+            secretKeyRef:
+              name: project-secrets
+              key: rabbitmq-connection
+        - name: ConnectionStrings__Redis
+          valueFrom:
+            secretKeyRef:
+              name: project-secrets
+              key: redis-connection
+        - name: Jwt__Secret
+          valueFrom:
+            secretKeyRef:
+              name: project-secrets
+              key: jwt-secret
+        - name: Sentry__Dsn
+          valueFrom:
+            secretKeyRef:
+              name: project-secrets
+              key: sentry-dsn
+        - name: OpenTelemetry__Endpoint
+          value: "http://otel-collector.project.svc.cluster.local:4317"
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 8080
+          initialDelaySeconds: 10
+          periodSeconds: 5
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8080
+          initialDelaySeconds: 15
+          periodSeconds: 10
+        resources:
+          requests:
+            memory: "128Mi"
+            cpu: "100m"
+          limits:
+            memory: "256Mi"
+            cpu: "250m"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: api-service
+  namespace: project
+spec:
+  type: NodePort
+  selector:
+    app: api
+  ports:
+  - port: 8080
+    targetPort: 8080
+    nodePort: 30080

@@ -1,0 +1,10 @@
+{
+  "name": "project-frontend",
+  "version": "0.0.1",
+  "description": "Project Ionic Frontend (placeholder)",
+  "private": true,
+  "scripts": {
+    "start": "echo 'Ionic dev server not configured yet'",
+    "build": "node -e \"const fs=require('fs'); fs.mkdirSync('www',{recursive:true}); fs.cpSync('src','www',{recursive:true});\""
+  }
+}

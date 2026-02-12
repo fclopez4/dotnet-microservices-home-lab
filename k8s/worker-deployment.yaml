@@ -1,0 +1,51 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: worker
+  namespace: project
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: worker
+  template:
+    metadata:
+      labels:
+        app: worker
+    spec:
+      containers:
+      - name: worker
+        image: server:8085/project/worker:latest
+        envFrom:
+        - configMapRef:
+            name: project-config
+        env:
+        - name: ConnectionStrings__MongoDB
+          valueFrom:
+            secretKeyRef:
+              name: project-secrets
+              key: mongodb-connection
+        - name: ConnectionStrings__RabbitMQ
+          valueFrom:
+            secretKeyRef:
+              name: project-secrets
+              key: rabbitmq-connection
+        - name: ConnectionStrings__Redis
+          valueFrom:
+            secretKeyRef:
+              name: project-secrets
+              key: redis-connection
+        - name: Sentry__Dsn
+          valueFrom:
+            secretKeyRef:
+              name: project-secrets
+              key: sentry-dsn
+        - name: OpenTelemetry__Endpoint
+          value: "http://otel-collector.project.svc.cluster.local:4317"
+        resources:
+          requests:
+            memory: "64Mi"
+            cpu: "50m"
+          limits:
+            memory: "128Mi"
+            cpu: "100m"

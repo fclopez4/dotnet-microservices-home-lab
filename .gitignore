@@ -1,0 +1,47 @@
+﻿## .NET
+bin/
+obj/
+*.user
+*.suo
+*.cache
+*.dll
+*.exe
+*.pdb
+*.nupkg
+*.snupkg
+project.lock.json
+*.nuget.props
+*.nuget.targets
+.vs/
+*.DotSettings.user
+
+## IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+## OS
+.DS_Store
+Thumbs.db
+
+## Docker
+docker-compose.override.yml
+
+## Secrets - NUNCA subir contraseÃ±as
+**/appsettings.*.local.json
+.env
+*.env
+
+## Frontend
+frontend/node_modules/
+frontend/www/
+
+## Test results
+TestResults/
+coverage/
+
+## Logs
+logs/
+
+.fake
