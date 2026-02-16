@@ -45,3 +45,4 @@ coverage/
 logs/
 
 .fake
+nul

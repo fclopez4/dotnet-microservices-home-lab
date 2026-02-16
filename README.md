@@ -37,7 +37,7 @@ Tambien puedes pedirle **"Verifica la infraestructura"** para comprobar el estad
 | Alertas | Prometheus AlertManager | - |
 | Error monitoring | Sentry | 5.x |
 | Documentacion API | Scalar (OpenAPI) | 1.2 |
-| Tests | xUnit + NSubstitute + FluentAssertions | - |
+| Tests | xUnit + NSubstitute + FluentAssertions + Testcontainers | - |
 | Contenedores | Docker multi-stage | - |
 | Orquestacion | Kubernetes (K3s) | - |
 | Ingress | Nginx Ingress Controller + Cert Manager | - |
@@ -138,7 +138,10 @@ Project.slnx
 ├── tests/
 │   ├── Project.Domain.Tests/           # Tests de entidades y value objects
 │   ├── Project.Application.Tests/      # Tests de handlers con mocks
-│   └── Project.Integration.Tests/      # Tests de endpoints (requiere infra)
+│   └── Project.Integration.Tests/      # Tests E2E con Testcontainers
+│       ├── Fixtures/                   # Factory, contenedores, stubs
+│       ├── Api/                        # Tests de endpoints HTTP
+│       └── Infrastructure/             # Tests directos de infra
 │
 ├── frontend/                           # Ionic/Angular (placeholder)
 │   ├── Dockerfile                      # Node build + Nginx
@@ -538,25 +541,115 @@ stringData:
 
 ## Tests
 
+El proyecto tiene 3 niveles de tests que validan desde las reglas de negocio mas internas hasta el sistema completo funcionando con infraestructura real.
+
+### Piramide de tests
+
+```
+          /  Integration  \        ← 56 tests | API + Infra real (Docker)
+         / - - - - - - - - \
+        /    Application    \      ← 4 tests  | Handlers con mocks
+       / - - - - - - - - - - \
+      /       Domain          \    ← 8 tests  | Entidades y value objects
+     /_________________________ \
+```
+
+### Ejecutar los tests
+
 ```bash
-# Ejecutar todos los tests
+# Todos los tests (los de integracion necesitan Docker corriendo)
 dotnet test
 
-# Solo tests de dominio
+# Solo tests unitarios (sin Docker)
 dotnet test tests/Project.Domain.Tests
-
-# Solo tests de aplicacion
 dotnet test tests/Project.Application.Tests
+
+# Solo tests de integracion
+dotnet test tests/Project.Integration.Tests
+
+# Solo los tests de MassTransit (no necesitan Docker)
+dotnet test tests/Project.Integration.Tests --filter "MassTransitTests"
 
 # Con cobertura
 dotnet test --collect:"XPlat Code Coverage"
 ```
 
-| Proyecto | Tipo | Que valida |
-|----------|------|-----------|
-| Domain.Tests | Unitarios | Email value object, User entity, reglas de dominio |
-| Application.Tests | Unitarios con mocks | Handlers, logica de negocio, validaciones |
-| Integration.Tests | Integracion | Endpoints HTTP completos (requiere MongoDB + RabbitMQ) |
+### 1. Tests de dominio (`Project.Domain.Tests`)
+
+**Requisitos**: Ninguno. Son tests puros sin dependencias externas.
+
+Validan las reglas de negocio del nucleo de la aplicacion:
+
+- **User entity**: Creacion con factory method, roles, desactivacion, creacion de invitados
+- **Email value object**: Formato valido/invalido, inmutabilidad, normalizacion a minusculas
+- **RefreshToken entity**: Expiracion, revocacion, estado activo/inactivo
+
+Estos tests son los mas rapidos y se ejecutan en milisegundos. Si alguno falla, hay un problema en la logica de negocio fundamental.
+
+### 2. Tests de aplicacion (`Project.Application.Tests`)
+
+**Requisitos**: Ninguno. Usan NSubstitute para simular repositorios y servicios.
+
+Validan los casos de uso (handlers de MediatR) aislados de la infraestructura:
+
+- **RegisterUserHandler**: Registro exitoso, rechazo por username duplicado
+- **GetUserByIdHandler**: Busqueda exitosa, usuario no encontrado
+
+Los repositorios se simulan con mocks, asi que estos tests verifican que la logica de orquestacion es correcta sin necesidad de MongoDB ni ningun otro servicio.
+
+### 3. Tests de integracion (`Project.Integration.Tests`)
+
+**Requisitos**: Docker corriendo (excepto `MassTransitTests` y `BCryptTests`).
+
+Estos son los tests mas completos. Levantan contenedores reales de **MongoDB** y **Redis** via [Testcontainers](https://testcontainers.com/), arrancan la API con `WebApplicationFactory`, y ejecutan peticiones HTTP reales contra ella. No necesitas configurar nada: los contenedores se crean y destruyen automaticamente.
+
+#### Tests de API (`Api/`)
+
+Simulan lo que haria un cliente real contra la API:
+
+| Clase | Tests | Que valida |
+|-------|-------|-----------|
+| `AuthEndpointTests` | 11 | Registro, login, refresh tokens, sesion de invitado, validaciones de password y email, duplicados |
+| `UserEndpointTests` | 6 | Obtener usuario por ID, listar usuarios, acceso denegado sin token, dashboard solo para admins |
+| `EmailEndpointTests` | 4 | Envio de emails, validacion de formato, rechazo sin autenticacion |
+
+Ejemplo del flujo que cubren: un test registra un usuario, hace login, recibe un JWT, y lo usa para acceder a un endpoint protegido. Si cualquier pieza falla (MongoDB, JWT, BCrypt, validaciones), el test falla.
+
+#### Tests de infraestructura (`Infrastructure/`)
+
+Verifican cada componente de infraestructura de forma directa, resolviendo los servicios del contenedor de DI de la aplicacion:
+
+| Clase | Tests | Que valida |
+|-------|-------|-----------|
+| `MongoDbRepositoryTests` | 13 | CRUD de usuarios, tokens de refresco, proyecciones CQRS (read models), revocacion masiva de tokens |
+| `RedisCacheTests` | 5 | Set/Get de strings, datos binarios, eliminacion, expiracion, claves inexistentes |
+| `JwtServiceTests` | 5 | Generacion de tokens, claims correctos (id, nombre, email, rol), expiracion futura, validacion con/sin lifetime |
+| `BCryptTests` | 5 | Hash diferente al input, salt aleatorio (dos hashes del mismo password son distintos), verificacion correcta e incorrecta |
+| `MassTransitTests` | 3 | Publicacion y consumo de mensajes con el test harness en memoria, mensajes en lote, datos correctos en el mensaje |
+| `OpenTelemetryTests` | 3 | Validacion de trazas con InMemory exporter: spans generados para peticiones HTTP, atributos semanticos (url.path, http.request.method, http.route) |
+
+### Como funcionan los Testcontainers
+
+Al ejecutar los tests de integracion, ocurre lo siguiente automaticamente:
+
+1. **Se levantan contenedores Docker** de MongoDB 7 y Redis 7 con puertos aleatorios
+2. **Se arranca la API** con `WebApplicationFactory`, inyectando las connection strings de los contenedores
+3. **MassTransit se reemplaza** por un stub en memoria (`InMemoryEmailQueue`) para evitar necesitar RabbitMQ
+4. **OpenTelemetry se reemplaza**: el OTLP exporter se sustituye por un `InMemoryExporter` que captura trazas y metricas en listas accesibles desde los tests, sin necesitar un OTel Collector
+5. **Se ejecutan los tests** contra la API y los servicios reales
+6. **Se destruyen los contenedores** al terminar
+
+Todo esto es transparente: no necesitas instalar MongoDB ni Redis en tu maquina, solo tener Docker corriendo.
+
+### Resumen
+
+| Proyecto | Tests | Docker | Que cubre |
+|----------|-------|--------|-----------|
+| Domain.Tests | 8 | No | Entidades, value objects, reglas de negocio |
+| Application.Tests | 4 | No | Handlers CQRS con mocks |
+| Integration.Tests | 56 | Si* | API HTTP, MongoDB, Redis, JWT, BCrypt, MassTransit, OpenTelemetry |
+
+*\*Los tests `MassTransitTests` y `BCryptTests` no necesitan Docker.*
 
 ---
 

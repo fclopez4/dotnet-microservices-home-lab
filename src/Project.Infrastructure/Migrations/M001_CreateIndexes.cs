@@ -17,7 +17,7 @@ public class M001_CreateIndexes : IMigration
             new CreateIndexOptions { Unique = true });
 
         var emailIndex = new CreateIndexModel<BsonDocument>(
-            Builders<BsonDocument>.IndexKeys.Ascending("Email.Value"),
+            Builders<BsonDocument>.IndexKeys.Ascending("Email"),
             new CreateIndexOptions { Unique = true });
 
         await users.Indexes.CreateManyAsync([usernameIndex, emailIndex], ct);

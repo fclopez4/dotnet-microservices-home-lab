@@ -17,25 +17,28 @@ public class UserReadRepository(
 
     public async Task<UserReadModel?> GetByIdAsync(string id, CancellationToken ct = default) =>
         await _pipeline.ExecuteAsync(async token =>
-            await context.Users
+        {
+            var user = await context.Users
                 .Find(u => u.Id == id)
-                .Project(Builders<User>.Projection.Expression(u => new UserReadModel(
-                    u.Id,
-                    u.Username,
-                    u.Email.Value,
-                    u.Role.ToString(),
-                    u.CreatedAt,
-                    u.IsActive)))
-                .FirstOrDefaultAsync(token), ct);
+                .FirstOrDefaultAsync(token);
+
+            return user is null
+                ? null
+                : new UserReadModel(
+                    user.Id, user.Username, user.Email.Value,
+                    user.Role.ToString(), user.CreatedAt, user.IsActive);
+        }, ct);
 
     public async Task<IReadOnlyList<UserListItemReadModel>> GetAllAsync(CancellationToken ct = default) =>
         await _pipeline.ExecuteAsync(async token =>
-            (IReadOnlyList<UserListItemReadModel>)await context.Users
+        {
+            var users = await context.Users
                 .Find(_ => true)
-                .Project(Builders<User>.Projection.Expression(u => new UserListItemReadModel(
-                    u.Id,
-                    u.Username,
-                    u.Email.Value,
-                    u.Role.ToString())))
-                .ToListAsync(token), ct);
+                .ToListAsync(token);
+
+            return (IReadOnlyList<UserListItemReadModel>)users
+                .Select(u => new UserListItemReadModel(
+                    u.Id, u.Username, u.Email.Value, u.Role.ToString()))
+                .ToList();
+        }, ct);
 }
